@@ -3,10 +3,14 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/ecdsa"
+	"math/big"
+
 	"encoding/gob"
 	"encoding/hex"
 	"fmt"
 	"log"
+	"strings"
 )
 
 const subsidy = 10 // gain of minning
@@ -15,6 +19,18 @@ type Transaction struct {
 	ID   []byte
 	Vin  []TXInput
 	Vout []TXOutput
+}
+
+type TXOutput struct {
+	Value        int
+	PubKeyHash []byte
+}
+
+type TXInput struct {
+	Txid      []byte
+	Vout      int
+	Signature []byte
+	PubKey string
 }
 
 func (tx Transaction) IsCoinbase() bool {
@@ -33,15 +49,94 @@ func (tx *Transaction) SetID() {
 	tx.ID = hash[:]
 }
 
-type TXOutput struct {
-	Value        int
-	ScriptPubKey string
+func (tx *Transaction) Sign(privKey ecdsa.PrivateKey, prevTXs map[string]Transaction) {
+	if tx.IsCoinbase(){
+		return
+	}
+	for _, vin := range tx.Vin {
+		if prevTXs[hex.EncodeToString(vin.Txid)].ID == nil {
+			log.Panic("ERROR: Previous transaction is not correct")
+		}
+	}
+	txCopy := tx.TrimmedCopy()
+	for inID, vin := range txCopy.Vin {
+		prevTx := prevTxs[hex.EncodeToString(vin.Txid)]
+		txCopy.Vin[inID].Signature = nil
+		txCopy.Vin[inID].PubKey = prevTx.Vout[vin.Vout].PubKeyHash
+		txCopy.ID = txCopy.Hash()
+		txCopy.Vin[inID].PubKey = nil
+		r, s, err :=ecdsa.Sign(rand.Reader, &privKey, txCopy.ID)
+		signature := append(r.Bytes(), s.Bytes())
+		tx.Vin[inID].Signature = signature
+	}
 }
 
-type TXInput struct {
-	Txid      []byte
-	Vout      int
-	ScriptSig string
+func (tx Transaction) String() string {
+	var lines []string
+	lines = append(lines, fmt.Sprintf("--- Transaction %x:", tx.ID))
+	for i, input := range tx.Vin {
+		lines = append(lines, fmt.Sprintf("    Input %d:", i))
+		lines = append(lines, fmt.Sprintf("      TXID: %x", input.Txid))
+		lines = append(lines, fmt.Sprintf("      Out: %d", input.Out))
+		lines = append(lines, fmt.Sprintf("      Signature: %x", input.Signature))
+		lines = append(lines, fmt.Sprintf("      PubKey: %x", input.PubKey))
+	}
+
+	for i, output := range tx.Vout {
+		lines = append(lines, fmt.Sprintf("    Output %d:", i))
+		lines = append(lines, fmt.Sprintf("      Value: %d", output.Value))
+		lines = append(lines, fmt.Sprintf("      Script: %x", output.PubKeyHash))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (tx *Transaction) TrimmedCopy() Transaction {
+	var inputs []TXInput
+	var outputs []TXOutput
+	for _, vin: range tx.Vin{
+		inputs = append(inputs, TXInput{vin.Txid, vin.Vout, nil, nil})
+	}
+	for _, vout := range tx.Vout {
+		outputs = append(outputs, TXOutput{vout.Value, vout.PubKeyHash})
+	}
+	txCopy := Transaction{tx.ID, inputs, outputs}
+	return txCopy
+}
+
+func (tx *Transaction) Verify(prevTXs map[string]Transaction) bool {
+	if tx.IsCoinbase() {
+		return true
+	}
+
+	for _, vin := range tx.Vin {
+		if prevTXs[hex.EncodeToString(vin.Txid)].ID == nil {
+			log.Panic("ERROR: Previous transaction is not correct")
+		}
+	}
+	txCopy := tx.TrimmedCopy()
+	curve := elliptic.P256()
+	for inID, vin := range tx.Vin {
+		prevTx := prevTXs[hex.EncodeToString(vin.Txid)]
+		txCopy.Vin[inID].Signature = nil
+		txCopy.Vin[inID].PubKey = prevTx.Vout[vin.Vout].PubKeyHash
+		txCopy.ID = txCopy.Hash()
+		txCopy.Vin[inID].PubKey = nil
+		r := big.Int{}
+		s := big.Int{}
+		sigLen := len(vin.Signature)
+		r.SetBytes(vin.Signature[:(sigLen/2)])
+		s.SetBytes(vin.Signature[(sigLen/2):])
+		x := bin.Int{}
+		y := big.Int{}
+		keyLen := len(vin.PubKey)
+		x.SetBytes(vin.PubKey[:(keyLen/2)])
+		y.SetBytes(vin.PubKey[(keyLen/2):])
+		rawPubKey := ecdsa.PublicKey{curve, &x, &y}
+		if ecdsa.Verify(&rawPubKey, txCopy.ID, &r, &s) == false {
+			return false
+		}
+	}
+	return true
 }
 
 func NewCoinbaseTX(to, data string) *Transaction {
@@ -56,12 +151,27 @@ func NewCoinbaseTX(to, data string) *Transaction {
 	return &tx
 }
 
+func (in *TXInput) UsesKey(pubKeyHash []byte) bool{
+	lockingHash := HashPubKey(in.PubKey)
+	return bytes.Compare(lockingHash, pubKeyHash) == 0
+}
+
 func (in *TXInput) CanUnlockOutputWith(unlockingData string) bool {
 	return in.ScriptSig == unlockingData
 }
 
 func (out *TXOutput) CanBeUnlockedWith(unlockingData string) bool {
 	return out.ScriptPubKey == unlockingData
+}
+
+func (out *TXOutput) Lock(address []byte){
+	pubKeyHash := Base58Decode(address)
+	pubKeyHash = pubKeyHash[1:len(pubKeyHash)-4]
+	out.PubKeyHash = pubKeyHash
+}
+
+func (out *TXOutput) IsLockedWithKey(pubKeyHash []byte) bool{
+	return bytes.Compare(out.PubKeyHash, pubKeyHash) == 0
 }
 
 func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transaction {
@@ -86,6 +196,7 @@ func NewUTXOTransaction(from, to string, amount int, bc *Blockchain) *Transactio
 		outputs = append(outputs, TXOutput{acc - amount, from})
 	}
 	tx := Transaction{nil, inputs, outputs}
-	tx.SetID()
+	tx.ID = tx.Hash()
+	// bc.SignTransaction(&tx, wallet.PrivateKey)
 	return &tx
 }

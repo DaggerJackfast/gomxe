@@ -21,3 +21,7 @@
 # Database files
 *.db
 wallet.dat
+
+# IDE
+.idea
+.vscode

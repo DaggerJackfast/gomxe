@@ -31,7 +31,7 @@ type TXOutputs struct {
 	Outputs []TXOutput
 }
 
-func (outs TXOutputs) Serialize() []byte{
+func (outs TXOutputs) Serialize() []byte {
 	var buff bytes.Buffer
 	enc := gob.NewEncoder(&buff)
 	err := enc.Encode(outs)

@@ -7,7 +7,7 @@ import (
 	"os"
 )
 
-type CLI struct {}
+type CLI struct{}
 
 func (cli *CLI) printUsage() {
 	fmt.Println("Usage: ")
@@ -43,7 +43,7 @@ func (cli *CLI) Run() {
 	sendTo := sendCmd.String("to", "", "Destination walled address")
 	sendAmount := sendCmd.Int("amount", 0, "Amount to send")
 
-	switch os.Args[1] {	
+	switch os.Args[1] {
 	case "createblockchain":
 		err := createBlockchainCmd.Parse(os.Args[2:])
 		if err != nil {
@@ -63,7 +63,7 @@ func (cli *CLI) Run() {
 		err := listAddressesCmd.Parse(os.Args[2:])
 		if err != nil {
 			log.Panic(err)
-		}	
+		}
 	case "printchain":
 		err := printChainCmd.Parse(os.Args[2:])
 		if err != nil {
@@ -100,7 +100,7 @@ func (cli *CLI) Run() {
 		}
 		cli.getBalance(*getBalanceAddress)
 	}
-	if listAddressesCmd.Parsed(){
+	if listAddressesCmd.Parsed() {
 		cli.listAddresses()
 	}
 	if printChainCmd.Parsed() {
@@ -117,4 +117,3 @@ func (cli *CLI) Run() {
 		cli.send(*sendFrom, *sendTo, *sendAmount)
 	}
 }
-

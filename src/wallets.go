@@ -10,7 +10,6 @@ import (
 	"os"
 )
 
-
 type Wallets struct {
 	Wallets map[string]*Wallet
 }
@@ -18,7 +17,7 @@ type Wallets struct {
 func NewWallets() (*Wallets, error) {
 	wallets := Wallets{}
 	wallets.Wallets = make(map[string]*Wallet)
-	err:=wallets.LoadFromFile()
+	err := wallets.LoadFromFile()
 	return &wallets, err
 }
 
@@ -46,7 +45,7 @@ func (ws *Wallets) LoadFromFile() error {
 		return err
 	}
 	fileContent, err := ioutil.ReadFile(walletFile)
-	if err!= nil {
+	if err != nil {
 		log.Panic(err)
 	}
 	var wallets Wallets
@@ -60,7 +59,7 @@ func (ws *Wallets) LoadFromFile() error {
 	return nil
 }
 
-func (ws Wallets) SaveToFile(){
+func (ws Wallets) SaveToFile() {
 	var content bytes.Buffer
 	gob.Register(elliptic.P256())
 	encoder := gob.NewEncoder(&content)

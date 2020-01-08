@@ -5,9 +5,9 @@ import (
 	"log"
 )
 
-func (cli *CLI) listAddresses(){
+func (cli *CLI) listAddresses() {
 	wallets, err := NewWallets()
-	if err !=nil {
+	if err != nil {
 		log.Panic(err)
 	}
 	addresses := wallets.GetAddresses()
